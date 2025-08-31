@@ -1,0 +1,289 @@
+------ Problem 1: Data Loading ------
+Sentencia para copiar el archivo al namenode local system files:    
+    gcloud compute scp ./car_insurance_cold_calls_dataset.csv sebastian_r_07_12_02@gds-cluster-m:
+
+Creamos el directorio en hdfs para esta asignación:
+    hdfs dfs -mkdir /user/hive/hive_ass1
+
+Colocamos el archivo al directorio creado:
+    hdfs dfs -put car_insurance_cold_calls_dataset.csv /user/hive/hive_ass1
+
+-Dentro de la consola de Hive-
+    Creamos la Base de Datos:
+        create database hive_db;
+    
+    Usamos la Base de Datos:
+        use hive_db;
+
+    Creamos la tabla externa solicitada:
+CREATE EXTERNAL TABLE car_insurance_cold_calls_dataset 
+(
+    Id               INT,
+    Age              INT,
+    Job              STRING,
+    Marital          STRING,
+    Education        STRING,
+    Default          INT,
+    Balance          INT,
+    HHInsurance      INT,
+    CarLoan          INT,
+    Communication    STRING,
+    LastContactDay   INT,
+    LastContactMonth STRING,
+    NoOfContacts     INT,
+    DaysPassed       INT,
+    PrevAttempts     INT,
+    Outcome          STRING,
+    CallStart        STRING,
+    CallEnd          STRING,
+    CarInsurance     INT
+)
+row format serde 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+with serdeproperties (
+  'separatorChar' = ',',
+  'quoteChar' = '\"',
+  'escapeChar' = '\\'
+)
+stored as textfile
+TBLPROPERTIES (
+  "skip.header.line.count"="1",
+  "serialization.null.format"="",
+  "line.delim"="\r\n"
+); 
+
+    Aqui pues como uso Windows, al momento de insertar la idea es que 
+    escape las filas correctamente pero no se ha podido, por el contrario
+    se han registrado todas las filas pero entre cada fila del archivo real
+    pues Hive agregó una fila con puros valores nulos. 
+    Para esta asignación lo dejaré así pues es como que el tamaño de la tabla
+    lo duplica y me sirve para las consultas, ya que mientras más grande
+    sea el archivo, mejor podremos ver el poder de Hive.  
+
+    Cargamos el archivo dentro de la tabla creada:
+        load data inpath '/user/hive/hive_ass1/' into table car_insurance_cold_calls_dataset;
+
+------ Problem 2: Data Exploration ------
+1. How many records are there in the dataset?
+    select count(*) as yr 
+    from car_insurance_cold_calls_dataset;
+
+2. How many unique job categories are there?
+    select distinct Job as yr 
+    from car_insurance_cold_calls_dataset;
+
+3. What is the age distribution of customers in the dataset? 
+Provide a breakdown by age group: 18-30, 31-45, 46-60, 61+
+    with AgeGroups as 
+    (select         
+        CASE
+            WHEN Age BETWEEN 18 AND 30 THEN '18-30'
+            WHEN Age BETWEEN 31 AND 45 THEN '31-45'
+            WHEN Age BETWEEN 46 AND 60 THEN '46-60'
+            WHEN Age >= 61 THEN '61+'
+        END AS AgeGroup
+    from car_insurance_cold_calls_dataset)
+
+    select     
+        AgeGroup,
+        COUNT(*) AS TotalCustomers
+    from AgeGroups
+    group by AgeGroup
+    order by AgeGroup;
+
+4. Count the number of records that have missing values in any
+field.
+    select count(*) as MissingValueRecords
+    from car_insurance_cold_calls_dataset
+    where Id IS NULL OR Id = 'NA'
+        OR Age IS NULL OR Age = 'NA'
+        OR Job IS NULL OR Job = 'NA'
+        OR Marital IS NULL OR Marital = 'NA'
+        OR Education IS NULL OR Education = 'NA'
+        OR Default IS NULL OR Default = 'NA'
+        OR Balance IS NULL OR Balance = 'NA'
+        OR HHInsurance IS NULL OR HHInsurance = 'NA'
+        OR CarLoan IS NULL OR CarLoan = 'NA'
+        OR Communication IS NULL OR Communication = 'NA'
+        OR LastContactDay IS NULL OR LastContactDay = 'NA'
+        OR LastContactMonth IS NULL OR LastContactMonth = 'NA'
+        OR NoOfContacts IS NULL OR NoOfContacts = 'NA'
+        OR DaysPassed IS NULL OR DaysPassed = 'NA'
+        OR PrevAttempts IS NULL OR PrevAttempts = 'NA'
+        OR Outcome IS NULL OR Outcome = 'NA'
+        OR CallStart IS NULL OR CallStart = 'NA'
+        OR CallEnd IS NULL OR CallEnd = 'NA'
+        OR CarInsurance IS NULL OR CarInsurance = 'NA';
+
+5. Determine the number of unique 'Outcome' values and their
+respective counts.
+    select Outcome, count(*) as c
+    from car_insurance_cold_calls_dataset
+    group by Outcome;
+
+6. Find the number of customers who have both a car loan and
+home insurance.
+    select count(*) as c
+    from car_insurance_cold_calls_dataset
+    where CarLoan = 1 and HHInsurance = 1; 
+
+------ Problem 3: Aggregations ------
+1. What is the average, minimum, and maximum balance for each
+job category?
+    select Job, avg(Balance) as avg, min(Balance) as min, max(Balance) as max
+    from car_insurance_cold_calls_dataset
+    group by Job; 
+
+2. Find the total number of customers with and without car
+insurance.
+    select CarInsurance, count(*) as r
+    from car_insurance_cold_calls_dataset
+    where CarInsurance = 1
+
+    union all 
+
+    select CarInsurance, count(*) as r
+    from car_insurance_cold_calls_dataset
+    where CarInsurance = 0;
+
+3. Count the number of customers for each communication type.
+    select Communication, count(*) as r
+    from car_insurance_cold_calls_dataset
+    group by Communication; 
+
+4. Calculate the sum of 'Balance' for each 'Communication' type.
+    select Communication, sum(Balance) as r
+    from car_insurance_cold_calls_dataset
+    group by Communication; 
+
+5. Count the number of 'PrevAttempts' for each 'Outcome' type.
+    select Outcome, sum(PrevAttempts) as r
+    from car_insurance_cold_calls_dataset
+    group by Outcome; 
+
+6. Calculate the average 'NoOfContacts' for people with and without
+'CarInsurance'.
+    select CarInsurance, avg(NoOfContacts) as r
+    from car_insurance_cold_calls_dataset
+    where CarInsurance = 1
+
+    union all 
+
+    select CarInsurance, avg(NoOfContacts) as r
+    from car_insurance_cold_calls_dataset
+    where CarInsurance = 0;
+
+------ Problem 4: Partitioning and Bucketing ------
+
+1. Create a partitioned table on 'Education' and 'Marital' status. Load
+data from the original table to this new partitioned table.
+    CREATE TABLE car_insurance_cold_calls_dataset_dynamic_partitioned
+    (
+        Id               INT,
+        Age              INT,
+        Job              STRING,
+        Default          INT,
+        Balance          INT,
+        HHInsurance      INT,
+        CarLoan          INT,
+        Communication    STRING,
+        LastContactDay   INT,
+        LastContactMonth STRING,
+        NoOfContacts     INT,
+        DaysPassed       INT,
+        PrevAttempts     INT,
+        Outcome          STRING,
+        CallStart        STRING,
+        CallEnd          STRING,
+        CarInsurance     INT
+    ) 
+    PARTITIONED BY (Education STRING, Marital STRING)
+    STORED AS PARQUET;
+
+    SET hive.exec.dynamic.partition = true;
+    SET hive.exec.dynamic.partition.mode = nonstrict;
+
+    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_dynamic_partitioned
+    PARTITION (Education, Marital)
+    SELECT
+        Id,
+        Age,
+        Job,
+        Default,
+        Balance,
+        HHInsurance,
+        CarLoan,
+        Communication,
+        LastContactDay,
+        LastContactMonth,
+        NoOfContacts,
+        DaysPassed,
+        PrevAttempts,
+        Outcome,
+        CallStart,
+        CallEnd,
+        CarInsurance,
+        Education,
+        Marital
+    FROM car_insurance_cold_calls_dataset;
+
+2. Create a bucketed table on 'Age', bucketed into 4 groups (as per
+the age groups mentioned above). Load data from the original
+table into this bucketed table.
+    CREATE TABLE car_insurance_cold_calls_dataset_bucketed (
+        Id               INT,
+        Age              INT,
+        Job              STRING,
+        Marital          STRING,
+        Education        STRING,
+        Default          INT,
+        Balance          INT,
+        HHInsurance      INT,
+        CarLoan          INT,
+        Communication    STRING,
+        LastContactDay   INT,
+        LastContactMonth STRING,
+        NoOfContacts     INT,
+        DaysPassed       INT,
+        PrevAttempts     INT,
+        Outcome          STRING,
+        CallStart        STRING,
+        CallEnd          STRING,
+        CarInsurance     INT
+    )
+    CLUSTERED BY (Age) INTO 4 BUCKETS
+    STORED AS PARQUET;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
