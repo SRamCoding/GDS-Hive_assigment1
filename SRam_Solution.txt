@@ -1,4 +1,4 @@
------- Problem 1: Data Loading ------
+------  Problem 1: Data Loading  ------
 Sentencia para copiar el archivo al namenode local system files:    
     gcloud compute scp ./car_insurance_cold_calls_dataset.csv sebastian_r_07_12_02@gds-cluster-m:
 
@@ -62,7 +62,7 @@ TBLPROPERTIES (
     Cargamos el archivo dentro de la tabla creada:
         load data inpath '/user/hive/hive_ass1/' into table car_insurance_cold_calls_dataset;
 
------- Problem 2: Data Exploration ------
+------  Problem 2: Data Exploration  ------
 1. How many records are there in the dataset?
     select count(*) as yr 
     from car_insurance_cold_calls_dataset;
@@ -126,7 +126,7 @@ home insurance.
     from car_insurance_cold_calls_dataset
     where CarLoan = 1 and HHInsurance = 1; 
 
------- Problem 3: Aggregations ------
+------  Problem 3: Aggregations  ------
 1. What is the average, minimum, and maximum balance for each
 job category?
     select Job, avg(Balance) as avg, min(Balance) as min, max(Balance) as max
@@ -172,11 +172,11 @@ insurance.
     from car_insurance_cold_calls_dataset
     where CarInsurance = 0;
 
------- Problem 4: Partitioning and Bucketing ------
+------  Problem 4: Partitioning and Bucketing  ------
 
 1. Create a partitioned table on 'Education' and 'Marital' status. Load
 data from the original table to this new partitioned table.
-    CREATE TABLE car_insurance_cold_calls_dataset_dynamic_partitioned
+    CREATE TABLE car_insurance_cold_calls_dataset_partitioned_v1
     (
         Id               INT,
         Age              INT,
@@ -202,7 +202,7 @@ data from the original table to this new partitioned table.
     SET hive.exec.dynamic.partition = true;
     SET hive.exec.dynamic.partition.mode = nonstrict;
 
-    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_dynamic_partitioned
+    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_partitioned_v1
     PARTITION (Education, Marital)
     SELECT
         Id,
@@ -224,14 +224,18 @@ data from the original table to this new partitioned table.
         CarInsurance,
         Education,
         Marital
-    FROM car_insurance_cold_calls_dataset;
+    FROM car_insurance_cold_calls_dataset
+    WHERE Education IS NOT NULL and Education <> 'NA'
+    AND   Marital IS NOT NULL and Marital <> 'NA';
 
 2. Create a bucketed table on 'Age', bucketed into 4 groups (as per
 the age groups mentioned above). Load data from the original
 table into this bucketed table.
-    CREATE TABLE car_insurance_cold_calls_dataset_bucketed (
+    CREATE TABLE car_insurance_cold_calls_dataset_bucketed_v1 
+    (
         Id               INT,
         Age              INT,
+        AgeGroup         STRING,
         Job              STRING,
         Marital          STRING,
         Education        STRING,
@@ -250,37 +254,272 @@ table into this bucketed table.
         CallEnd          STRING,
         CarInsurance     INT
     )
-    CLUSTERED BY (Age) INTO 4 BUCKETS
+    CLUSTERED BY (AgeGroup) INTO 4 BUCKETS
     STORED AS PARQUET;
 
+    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_bucketed_v1
+    SELECT
+        Id,
+        Age,
+        CASE 
+            WHEN Age BETWEEN 18 AND 30 THEN '18-30'
+            WHEN Age BETWEEN 31 AND 45 THEN '31-45'
+            WHEN Age BETWEEN 46 AND 60 THEN '46-60'
+            ELSE '61+'
+        END AS AgeGroup,
+        Job,
+        Marital,
+        Education,
+        Default,
+        Balance,
+        HHInsurance,
+        CarLoan,
+        Communication,
+        LastContactDay,
+        LastContactMonth,
+        NoOfContacts,
+        DaysPassed,
+        PrevAttempts,
+        Outcome,
+        CallStart,
+        CallEnd,
+        CarInsurance
+    FROM car_insurance_cold_calls_dataset
+    WHERE Age IS NOT NULL and Age <> 'NA';
+
+3. Add an additional partition on 'Job' to the partitioned table created
+earlier and move the data accordingly.
+    CREATE TABLE car_insurance_cold_calls_dataset_partitioned_v2
+    (
+        Id               INT,
+        Age              INT,
+        Default          INT,
+        Balance          INT,
+        HHInsurance      INT,
+        CarLoan          INT,
+        Communication    STRING,
+        LastContactDay   INT,
+        LastContactMonth STRING,
+        NoOfContacts     INT,
+        DaysPassed       INT,
+        PrevAttempts     INT,
+        Outcome          STRING,
+        CallStart        STRING,
+        CallEnd          STRING,
+        CarInsurance     INT
+    ) 
+    PARTITIONED BY (Job STRING, Education STRING, Marital STRING)
+    STORED AS PARQUET;
+
+    SET hive.exec.dynamic.partition = true;
+    SET hive.exec.dynamic.partition.mode = nonstrict;
+
+    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_partitioned_v2
+    PARTITION (Job, Education, Marital)
+    SELECT
+        Id,
+        Age,
+        Default,
+        Balance,
+        HHInsurance,
+        CarLoan,
+        Communication,
+        LastContactDay,
+        LastContactMonth,
+        NoOfContacts,
+        DaysPassed,
+        PrevAttempts,
+        Outcome,
+        CallStart,
+        CallEnd,
+        CarInsurance,
+        Job,
+        Education,
+        Marital
+    FROM car_insurance_cold_calls_dataset
+    WHERE Job IS NOT NULL AND Job <> 'NA'
+    AND   Education IS NOT NULL and Education <> 'NA'
+    AND   Marital IS NOT NULL and Marital <> 'NA';
+
+4. Increase the number of buckets in the bucketed table to 10 and
+redistribute the data.
+    CREATE TABLE car_insurance_cold_calls_dataset_bucketed_v2        
+    (
+        Id               INT,
+        Age              INT,
+        AgeGroup         STRING,
+        Job              STRING,
+        Marital          STRING,
+        Education        STRING,
+        Default          INT,
+        Balance          INT,
+        HHInsurance      INT,
+        CarLoan          INT,
+        Communication    STRING,
+        LastContactDay   INT,
+        LastContactMonth STRING,
+        NoOfContacts     INT,
+        DaysPassed       INT,
+        PrevAttempts     INT,
+        Outcome          STRING,
+        CallStart        STRING,
+        CallEnd          STRING,
+        CarInsurance     INT
+    )
+    CLUSTERED BY (AgeGroup) INTO 10 BUCKETS
+    STORED AS PARQUET;
+
+    SET hive.enforce.bucketing = true;
+    SET mapreduce.job.reduces = 10;
+
+    INSERT OVERWRITE TABLE car_insurance_cold_calls_dataset_bucketed_v2
+    SELECT *
+    FROM car_insurance_cold_calls_dataset_bucketed_v1;
+
+------  Problem 5: Optimized Joins  ------
+1. Join the original table with the partitioned table and find out the
+average 'Balance' for each 'Job' and 'Education' level.
+    SELECT t2.Job, t2.Education, avg(t2.Balance) as avg_bal
+    FROM car_insurance_cold_calls_dataset t1 
+    JOIN car_insurance_cold_calls_dataset_partitioned_v2 t2 
+    ON t1.id = t2.id
+    GROUP BY t2.Job, t2.Education;
+
+2. Join the original table with the bucketed table and calculate the
+total 'NoOfContacts' for each 'Age' group.
+    SELECT t2.AgeGroup, sum(t2.NoOfContacts) as r
+    FROM car_insurance_cold_calls_dataset t1 
+    JOIN car_insurance_cold_calls_dataset_bucketed_v2 t2 
+    ON t1.id = t2.id
+    GROUP BY t2.AgeGroup;
+
+3. Join the partitioned table and the bucketed table based on the 'Id'
+field and find the total balance for each education level and
+marital status for each age group.
+    SELECT t2.AgeGroup, t1.Education, t1.Marital, sum(t1.Balance) as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2 t1 
+    JOIN car_insurance_cold_calls_dataset_bucketed_v2 t2 
+    ON t1.id = t2.id
+    GROUP BY 
+        t2.AgeGroup,
+        t1.Education,
+        t1.Marital;
+
+------  Problem 6: Window Function  ------
+1. Calculate the acumulative sum of 'NoOfContacts' for each 'Job'
+category, ordered by 'Age'.
+    SELECT 
+        Job, 
+        Age, 
+        SUM(NoOfContacts) 
+            OVER(PARTITION BY Job 
+                 ORDER BY Age 
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) 
+        as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2;
+
+2. Calculate the running average of 'Balance' for each 'Job'
+category, ordered by 'Age'.
+    SELECT 
+        Job,
+        Age,
+        Balance,
+        AVG(Balance) OVER (
+            PARTITION BY Job
+            ORDER BY Age ASC
+            ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING
+        ) AS r  
+    FROM car_insurance_cold_calls_dataset_partitioned_v2;
+
+3. For each 'Job' category, find the maximum 'Balance' for each
+'Age' group using window functions.
+    SELECT 
+        Job,
+        AgeGroup,
+        MAX(Balance) OVER (PARTITION BY Job, AgeGroup) AS r
+    FROM car_insurance_cold_calls_dataset_bucketed_v2;
+
+4. Calculate the rank of 'Balance' within each 'Job' category, ordered
+by 'Balance' descending.
+    SELECT 
+        Job, 
+        Balance,
+        DENSE_RANK() OVER (PARTITION BY Job ORDER BY Balance ASC) as r 
+    FROM car_insurance_cold_calls_dataset_partitioned_v2;
+
+------  Problem 7: Advanced Aggregations  ------
+1. Find the job category with the highest number of car insurances.
+    SELECT Job, COUNT(CarInsurance) as rp
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE CarInsurance = 1
+    GROUP BY Job
+    ORDER BY COUNT(CarInsurance) DESC
+    LIMIT 1;
+
+2. Which month has seen the highest number of last contacts?
+    SELECT LastContactMonth, SUM(NoOfContacts) as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE LastContactMonth IS NOT NULL and LastContactMonth <> 'NA'
+    GROUP BY LastContactMonth
+    ORDER BY SUM(NoOfContacts) DESC
+    LIMIT 1;
+
+3. Calculate the ratio of the number of customers with car insurance
+to the number of customers without car insurance for each job
+category.
+    WITH t1 as
+    (SELECT Job, COUNT(id) as rp1
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE CarInsurance = 1
+    GROUP BY Job),
+    t2 as
+    (SELECT Job, COUNT(id) as rp2
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE CarInsurance = 0
+    GROUP BY Job)
+    
+    SELECT t1.Job, ROUND(t1.rp1 / t2.rp2, 2) AS r
+    FROM t1
+    JOIN t2 
+    ON t1.Job = t2.Job;
+
+4. Find out the 'Job' and 'Education' level combination which has the
+highest number of car insurances.
+    SELECT Job, Education, COUNT(id) as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE CarInsurance = 1
+    GROUP BY Job, Education
+    ORDER BY COUNT(id) DESC
+    LIMIT 1;
+
+5. Calculate the average 'NoOfContacts' for each 'Outcome' and
+'Job' combination.
+    SELECT Outcome, Job, ROUND(AVG(NoOfContacts), 2) as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    WHERE Outcome IS NOT NULL and Outcome <> 'NA'
+    GROUP BY Outcome, Job;
 
 
+6. Determine the month with the highest total 'Balance' of
+customers.
+    SELECT LastContactMonth, SUM(Balance) as r
+    FROM car_insurance_cold_calls_dataset_partitioned_v2
+    GROUP BY LastContactMonth
+    ORDER BY SUM(Balance) DESC
+    LIMIT 1;
 
+------  Problem 8: Complex joins and aggregations  ------
+1. For customers who have both a car loan and home insurance,
+find out the average 'Balance' for each 'Education' level.
 
+2. Identify the top 3 'Communication' types for customers with
+'CarInsurance', and display their average 'NoOfContacts'.
 
+3. For customers who have a car loan, calculate the average
+balance for each job category.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+4. Identify the top 5 job categories that have the most customers
+with a 'default', and show their average 'balance'.
 
 
 
